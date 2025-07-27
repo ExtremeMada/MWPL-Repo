@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CSV ZIP Reader</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <h2 id="main-title">Person Analsyser</h2>
+  <input type="file" id="zip1" accept=".zip" />
+  <input type="file" id="zip2" accept=".zip" />
+  <button id="processBtn"  class="button-37">Process</button>
+
+  <h3>Filtered Results (Limit > 5)</h3>
+  <div id="resultContainer" ></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script>
+    document.getElementById('processBtn').addEventListener('click', async () => {
+      const zip1File = document.getElementById('zip1').files[0];
+      const zip2File = document.getElementById('zip2').files[0];
+
+      if (!zip1File || !zip2File) {
+        alert('Please upload both zip files.');
+        return;
+      }
+
+      const [csv1Data, csv2Data] = await Promise.all([
+        extractCSVFromZip(zip1File),
+        extractCSVFromZip(zip2File)
+      ]);
+
+      const processed1 = processCSV(csv1Data);
+      const processed2 = processCSV(csv2Data);
+
+      const diff = diffLimitsAll(processed1, processed2);
+
+      displayTable(diff);
+    });
+
+    async function extractCSVFromZip(file) {
+      const zip = await JSZip.loadAsync(file);
+      const csvFile = Object.keys(zip.files).find(name => name.endsWith('.csv'));
+      const content = await zip.files[csvFile].async('string');
+      return content;
+    }
+
+    function processCSV(csvText) {
+
+      const lines = csvText.trim().split('\n');
+      const headers = lines[0].split(',');
+
+      const NSE_INDEX = headers.indexOf(' NSE Symbol');
+      const MWPL_INDEX = headers.indexOf(' MWPL');
+      const NEXT_INDEX =  headers.findIndex(header => {
+  const lower = header.toLowerCase();
+  return lower.includes("limit") && lower.includes("next") && lower.includes("day");
+});
+
+      
+
+      const result = lines.slice(1).map(line => {
+        const parts = line.split(',');
+        const nse = parts[NSE_INDEX];
+        const mwpl = parseFloat(parts[MWPL_INDEX]);
+        const nextDay = parseFloat(parts[NEXT_INDEX]);
+        const limit = (nextDay / mwpl) * 100;
+        return { symbol: nse, mwpl, nextDay, limit };
+      });
+
+      return result
+        .filter(row => !isNaN(row.limit))
+        .sort((a, b) => a.symbol.localeCompare(b.symbol));
+    }
+
+function diffLimitsAll(csv1, csv2) {
+  const csv1Map = new Map(csv1.map(row => [row.symbol, row.limit]));
+
+  console.log(csv1);
+  
+  return csv2
+    .map(row => {
+      const limit1 = csv1Map.get(row.symbol);
+      
+      
+      if (limit1 === undefined) {
+        // No match in csv1, include the row anyway
+        return { ...row, diff: null };
+      }
+      const diff = limit1-row.limit;
+      console.log(`${row.symbol} : ${diff}`);
+      return diff >= 5 ? { ...row, diff } : null;
+    })
+    .filter(row => row !== null);
+}
+
+
+    function displayTable(data) {
+      const container = document.getElementById('resultContainer');
+      container.textContent = ''; // Clear existing
+
+      if (data.length === 0) {
+        const msg = document.createElement('p');
+        msg.textContent = 'No data with Limit > 5 found.';
+        container.appendChild(msg);
+        return;
+      }
+
+      const table = document.createElement('table');
+      table.border = '1';
+      const header = document.createElement('tr');
+
+      [' NSE Symbol', ' MWPL', ' Next Day', ' Limit (%)'].forEach(text => {
+        const th = document.createElement('th');
+        th.textContent = text;
+        header.appendChild(th);
+      });
+
+      table.appendChild(header);
+
+      data.forEach(row => {
+        const tr = document.createElement('tr');
+        [row.symbol, row.mwpl, row.nextDay, row.limit.toFixed(2)].forEach(val => {
+          const td = document.createElement('td');
+          td.textContent = val;
+          tr.appendChild(td);
+        });
+        table.appendChild(tr);
+      });
+
+      container.appendChild(table);
+    }
+  </script>
+</body>
+</html>
